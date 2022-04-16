@@ -4,7 +4,8 @@ module.exports = {
 		.setName('shutdown')
 		.setDescription('This shuts down the bot.'),
 	async execute(interaction) {
-	//this will shut it down
-		client.destroy();
+	await interaction.reply(`Server name: ${interaction.guild.name}\n Bot successfully shutdown`);
+    process.exit();
+		//client.destroy();
 	},
 };
