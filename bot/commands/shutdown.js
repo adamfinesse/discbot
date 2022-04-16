@@ -4,6 +4,7 @@ module.exports = {
 		.setName('shutdown')
 		.setDescription('This shuts down the bot.'),
 	async execute(interaction) {
+	//this will shut it down
 		client.destroy();
 	},
 };
