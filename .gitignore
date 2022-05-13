@@ -2,6 +2,6 @@
 /shelf/
 /workspace.xml
 config.json
-process.env
-
+.env
+node_modules
 .idea

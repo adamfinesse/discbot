@@ -4,8 +4,7 @@ module.exports = {
 		.setName('shutdown')
 		.setDescription('This shuts down the bot.'),
 	async execute(interaction) {
-	await interaction.reply(`Server name: ${interaction.guild.name}\n Bot successfully shutdown`);
-    process.exit();
-		//client.destroy();
+	//await interaction.reply(`Bot successfully shutdown`);
+	await interaction.client.destroy(); // interaction.client used to grab client instance.
 	},
 };
