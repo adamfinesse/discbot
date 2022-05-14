@@ -1,8 +1,11 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const fetch = require('node-fetch');
-const jsdom = require("jsdom");
-
-
+const { MessageEmbed } = require('discord.js');
+const {googleAPI,SE} = require("../config.json");
+let limit =0;
+let embedArray =[];
+let start =1;
+let currentIndex =0;
 module.exports = {
 	data: new SlashCommandBuilder()
 		.setName('google')
@@ -13,56 +16,106 @@ module.exports = {
 		    .setRequired(true)
 		    ),
 	async execute(interaction) {
+		// only 100 total uses in a day, so we block off more than 100 attempts.
+		if(limit>=99) return interaction.reply("There were over 99 search attempts today! Please retry tomorrow.");
+
 		//get the arguments from the command
          const args = (interaction.options.getString("input")).split(" ");
-         console.log(args);
 
-        let response = await fetch('https://www.google.com/search?q=' + args.join('+'));
+        //retrieve the response and parse the json for the links + snippet description
 
-        if(!response.ok) {
-            return interaction.reply('There was an error with your request. Error code: ' + response.status);
-        }
+            let json = await searchGoogle(args, start, 0);
+            start = start + 10;
+            let urls = extractInfo(json);
 
-        else{
-//            let json = await response.json();
-//            await console.log(json);
-            let html = await response.text();
-            //let links = html.match(/<a href='(.*?)'/g)//
+        //finally send the urls we gathered to the channel via embed.
+           let searchEmbed = embedBuilder(urls,interaction.options.getString("input"));
+           embedArray.push(searchEmbed);
+           let message = await interaction.reply({embeds: [searchEmbed], fetchReply: true});
+
+           //await message.react("⬅️").then(() => message.react("➡️"));
+           await message.react("⬅️");
+           await message.react("➡️");
+
+          //console.log(message);
+
+         //now wait for a left arrow or right arrow to view more pages of search results.
+           const filter = (reaction, user) => {
+           console.log("filter ran");
+           	return ["⬅️", "➡️"].includes(reaction.emoji.name) && user.id === interaction.user.id;
+           };
+
+           message.awaitReactions({ filter, max: 1, time: 20000, errors: ['time'] })
+           	.then(async collected => {
+           		let reaction = collected.first();
+
+           		if (reaction.emoji.name === "⬅️") {
+           			console.log('You reacted with a left arrow.');
+           			//here use previous results and redisplay the old embed (save an array of previous embeds) and either clear or resend reactions
+                    message.edit({embeds: [embedArray[currentIndex]]});
+                    currentIndex--;
+                    // likely want to change this all around to a button instead for repeated actions.
 
 
-//            const fs = require('node:fs');
-//            var util = require('util');
-//            fs.writeFileSync('test.txt', html);
+           		} else if(reaction.emoji.name === "➡️") {
+           			console.log('You reacted with a right arrow.');
+           			//need to add checks if we already searched before for
+           			if(currentIndex <= embedArray.length-1 && embedArray.length !=1){// or check if current index is not larger then length
+           			message.edit({embeds: [embedArray[currentIndex]]});
+                    currentIndex++;
+           			}else{
+                        let json = await searchGoogle(args, start, 0 );
+                        let urls = extractInfo(json);
+                        let searchEmbed2 = embedBuilder(urls,interaction.options.getString("input"));
+                        embedArray.push(searchEmbed);
+                        currentIndex++;
+                        message.edit({embeds: [searchEmbed2]});
+                    }
+           		}
+           	})
+           	.catch(collected => {
+           	     //if after the time is up clear everything and let the user know they will need to make a new search to use arrow features
+           	    //console.log(collected);
+           		message.reply('You reacted with neither a left or right arrow.');
+           	});
 
-
-            const { JSDOM } = jsdom;
-            let dom = new JSDOM(html);
-            const {document: doc} = dom.window;
-            let links = doc.getElementsByTagName('a');
-           // console.log(links[3].getAttribute('href'));
-            var urls = [];
-
-            for (var i=0; i<links.length-22; i++) {
-                if(links[i].getAttribute("href").includes('/url?q=https') && !links[i].getAttribute("href").includes('youtube')){
-                urls.push(links[i].getAttribute("href").substring(7,links[i].getAttribute("href").length));//-86
-            }
-            //let links = html.match(/<a href="url?=https:"/g);
-//            let finalLinks = [];//(.*?)
-//            let c =0;
-//           links.forEach(link => {
-//            if(link.includes('/url?q=https')){
-//                //links.splice(c, 1);
-//                finalLinks.push(link);
-       }
-//            c++;
-//            });
-            console.log(urls);
-            let botMessage = '';
-            urls.forEach(link => {
-                botMessage += link + '\n';
-            });
-            //let text = await response.text().then(text => console.log(text));
-            await interaction.reply(botMessage);
-        }
 	},
 };
+
+function extractInfo(json){
+       let urlArr = [];
+        json["items"].forEach(url => {
+            let urlObj = { "url": url["link"],
+            "snippet": url["snippet"]
+        };
+        urlArr.push(urlObj);
+        });
+        return urlArr;
+}
+
+function embedBuilder(urls, searchTerms){
+    let resultEmbed = new MessageEmbed()
+        .setColor("#4287f5")
+        .setTitle('Search Results for '+searchTerms)
+        .setTimestamp()
+
+        urls.forEach(obj => {
+            resultEmbed.addField( obj["url"],obj["snippet"],false);
+        });
+        return resultEmbed;
+}
+
+async function searchGoogle(args, start, end){
+    //sets up the search end point with our search term(s) and makes the request
+    let endpoint = `https://www.googleapis.com/customsearch/v1?key=${googleAPI}&cx=${SE}&q=${args.join('+')}&start=${start}`;
+    let request = await fetch(endpoint);
+    limit++;
+
+    //if failure let the user know
+    if(!request.ok) {
+        return interaction.reply('There was an error with your request. Error code: ' + request.status);
+    }
+    let json = request.json();
+
+    return json;
+}

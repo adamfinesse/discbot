@@ -4,7 +4,8 @@ const { Client, Collection, Intents } = require('discord.js');
 const { token } = require('./config.json');
 
 // Create a new client instance
-const client = new Client({ intents: [Intents.FLAGS.GUILDS] });
+const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGE_REACTIONS] });
+// Whenever interacting with a new event make sure to check if you need new intents
 
 client.commands = new Collection();
 
@@ -27,10 +28,6 @@ for (const file of eventFiles) {
 		client.on(event.name, (...args) => event.execute(...args));
 	}
 }
-// When the client is ready, run this code (only once)
-//client.once('ready', () => {
-//	console.log('Ready!');
-//});
 
 client.on('interactionCreate', async interaction => {
 	if (!interaction.isCommand()) return;
