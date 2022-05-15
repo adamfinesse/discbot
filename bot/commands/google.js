@@ -8,7 +8,8 @@ let start =0;
 let currentIndex =0;
 let input = "emptyString";
 let currentPage =0;
-let numResults =1;
+let numResults =5;
+
 module.exports = {
 	data: new SlashCommandBuilder()
 		.setName('google')
@@ -28,7 +29,7 @@ module.exports = {
         //retrieve the response and parse the json for the links + snippet description
             input = interaction.options.getString("input");
             let json = await searchGoogle(args, start, 0);
-            start = start + 10;
+            start = start + 5;
             let urls = extractInfo(json);
 
         //finally send the urls we gathered to the channel via embed.
@@ -48,23 +49,22 @@ module.exports = {
            				    .setStyle('PRIMARY')
            			);
 
-           let message = await interaction.reply({embeds: [searchEmbed], fetchReply: true, components: [row]});
+           await interaction.reply({embeds: [searchEmbed], fetchReply: true, components: [row]});
 
            interaction.client.on('interactionCreate', async interaction => {
            	if (!interaction.isButton()) return;
 
            	if(interaction.customId == "next"){
-           	console.log("inside next");
+           	//console.log("inside next");
 
                 if(embedArray[currentIndex+1] !== undefined){
-                    console.log("returned inside next");
-                    console.log(typeof embedArray[currentIndex]);
-
+                    //console.log("returned inside next");
+                    //console.log(typeof embedArray[currentIndex]);
                     await interaction.update({embeds: [embedArray[currentIndex]]});
                     currentIndex++;
                 }else{
                     let json = await searchGoogle(args, start, 0 );
-                    start = start + 10;
+                    start = start + 5;
                     let urls = extractInfo(json);
 
                     let searchEmbed2 = embedBuilder(urls,input);
@@ -114,11 +114,11 @@ function embedBuilder(urls, searchTerms){
 
 async function searchGoogle(args, start, end){
     //sets up the search end point with our search term(s) and makes the request
-    if(numResults > 10) numResults = 1;
+    //if(numResults > 10) numResults = 5;
     let endpoint = `https://www.googleapis.com/customsearch/v1?key=${googleAPI}&cx=${SE}&q=${args.join('+')}&start=${start}&num=${numResults}`;
     let request = await fetch(endpoint);
     limit++;
-    numResults = numResults + 5;
+    //numResults = numResults + 5;
     //if failure let the user know
     if(!request.ok) {
         return interaction.reply('There was an error with your request. Error code: ' + request.status);
