@@ -1,13 +1,20 @@
 // Require the necessary discord.js classes
 const fs = require('node:fs');
 const { Client, Collection, Intents } = require('discord.js');
-const { token } = require('./config.json');
+const { token,guildId } = require('./config.json');
+const {createAudioPlayer, NoSubscriberBehavior} = require("@discordjs/voice");
 
 // Create a new client instance
-const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGE_REACTIONS] });
+const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGE_REACTIONS, Intents.FLAGS.GUILD_MESSAGES,Intents.FLAGS.GUILD_VOICE_STATES] });
 // Whenever interacting with a new event make sure to check if you need new intents
 
 client.commands = new Collection();
+client.players = new Collection();
+client.players.set(guildId, createAudioPlayer({
+	behaviors: {
+		noSubscriber: NoSubscriberBehavior.Play
+	}
+}));
 
 const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
 
