@@ -13,6 +13,7 @@ let songQueue = [];
 let urlArr =[]
 let eventBool = false;
 let currentSong;
+let connection;
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('music')
@@ -38,27 +39,33 @@ module.exports = {
                 .setDescription("shows the queue of the music bot."))
         .addSubcommand(skip =>
         skip.setName("skip")
-            .setDescription("skips the current song.")),
+            .setDescription("skips the current song."))
+        .addSubcommand(soundcloud =>
+                soundcloud.setName("soundcloud")
+                    .setDescription("shows the queue of the music bot.")
+                    .addStringOption(searchTerm =>
+                        searchTerm.setName("input")
+                            .setDescription("the search term to search for on soundcloud.")
+                            .setRequired(true))),
     async execute(interaction) {
+        if (!interaction.member.voice?.channel) return interaction.reply('Connect to a Voice Channel');
+        // if (interaction.client.players.has(interaction.guildId)) {
+        //
+        // }
+
         switch(interaction.options.getSubcommand()) {
             case "youtube":
                 const origArgs = interaction.options.getString("input");
                 const args = (interaction.options.getString("input")).split(" ");
 
-                //interaction.options.getSubcommand() switch statement to differentiate options
                 if (origArgs.includes("https://www.youtube.com/watch")) {
-                    //  try to use the api to search up the link and select the first result, on chrome works good
                     if (interaction.client.players.has(interaction.guildId)) {
                         let player = interaction.client.players.get(interaction.guildId);
-                        if (!interaction.member.voice?.channel) return interaction.channel.send('Connect to a Voice Channel');
 
                         let endpoint = `https://youtube.googleapis.com/youtube/v3/search?part=snippet&maxResults=1&q=${args.join("%20")}&key=${googleAPI}`;
                         let request = await fetch(endpoint);
                         let json = await request.json();
                         let itemsArr = json["items"];
-                        console.log(itemsArr);
-                        //console.log(itemsArr[0]["snippet"]["thumbnails"]+"\n");
-                        //console.log(itemsArr[0]["snippet"]["thumbnails"]["default"]["url"]);
 
                         if (player.state.status == AudioPlayerStatus.Playing) {
                             songQueue.push({url: origArgs, title: unescape(itemsArr[0]["snippet"]["title"]), description: itemsArr[0]["snippet"]["description"], thumbnail: itemsArr[0]["snippet"]["thumbnails"]["default"]["url"], channel: unescape(itemsArr[0]["snippet"]["channelTitle"]) });
@@ -69,50 +76,38 @@ module.exports = {
                                 .setThumbnail(itemsArr[0]["snippet"]["thumbnails"]["default"]["url"])
                                 //.setDescription("")
                                 .setTimestamp()
-                            //interaction.channel.send({embeds: [addedToQueueEmbed], fetchReply: true})
                             interaction.reply({embeds: [addedToQueueEmbed], fetchReply: true})
 
                         } else {
-                            songQueue.push({url: origArgs, title: itemsArr[0]["snippet"]["title"], description: itemsArr[0]["snippet"]["description"], thumbnail: itemsArr[0]["snippet"]["thumbnails"]["default"]["url"], channel: unescape(itemsArr[0]["snippet"]["channelTitle"] )});
-                            //console.log(songQueue[0]);
-                            const connection = joinVoiceChannel({
-                                channelId: interaction.member.voice.channel.id,
-                                guildId: interaction.guild.id,
-                                adapterCreator: interaction.guild.voiceAdapterCreator
-                            });
-                            let song = songQueue.shift();
-                            //console.log(song);
-                            let stream = await play.stream(song.url);
+                            let song = {url: origArgs, title: itemsArr[0]["snippet"]["title"], description: itemsArr[0]["snippet"]["description"], thumbnail: itemsArr[0]["snippet"]["thumbnails"]["default"]["url"], channel: unescape(itemsArr[0]["snippet"]["channelTitle"] )}
+                            songQueue.push(song);
 
-                            //Create AudioResource from Stream
-                            let resource = createAudioResource(stream.stream, {
-                                inputType: stream.type
-                            })
-
-                            player.play(resource)
-
-                            connection.subscribe(player)
-
+                            await playSong(interaction,player);
                             let playingEmbed = new MessageEmbed()
                                 .setColor("#FF0000")
                                 .setTitle("Now playing: " + unescape(song.title))
                                 .setThumbnail(song.thumbnail)
                                 //.setDescription("")
                                 .setTimestamp()
-                            console.log(unescape(song.title))
-                            //interaction.channel.send({embeds: [playingEmbed], fetchReply: true});
                             interaction.reply({embeds: [playingEmbed], fetchReply: true});
 
-
                             if (eventBool == false) {
+                                //player.on(AudioPlayerStatus.Idle,nextSongEvent);
                                 player.on(AudioPlayerStatus.Idle, async () => {
                                     eventBool = true;
                                     if (songQueue.length == 0) {
                                         interaction.channel.send("Queue finished!");
                                         player.stop();
+                                        connection.unsubscribe(player);
                                         return;
                                     }
+
                                     let song = songQueue.shift();
+
+                                    if(song.url.includes("soundcloud")){
+                                        let stream = await playSongSC(interaction,player,song);
+                                    }
+
                                     let stream = await play.stream(song.url)
 
                                     //Create AudioResource from Stream
@@ -139,7 +134,7 @@ module.exports = {
                     let request = await fetch(endpoint);
                     let json = await request.json();
                     let itemsArr = json["items"];
-                    //console.log(itemsArr[0]["snippet"]["thumbnails"]);
+
 
                     let searchEmbed = new MessageEmbed()
                         .setColor("#FF0000")
@@ -153,12 +148,12 @@ module.exports = {
                         let titleString = unescape(url["snippet"]["title"])
                         searchEmbed.addField(c + `: ${YTurl}`, titleString, false);
                         urlArr[c] = {url: YTurl, title: titleString, description: url["snippet"]["description"], thumbnail: url["snippet"]["thumbnails"]["default"]["url"], channel: unescape(url["snippet"]["channelTitle"]) };
-                        //console.log(urlArr[c]);
                         c++;
                     });
 
                     let int = 0;
                     const filter = response => {
+                        console.log("filter ran");
                         int = parseInt(response.content);
                         return (int > 0 && int <= 5);
                     };
@@ -167,10 +162,7 @@ module.exports = {
                         .then(() => {
                             interaction.channel.awaitMessages({filter, max: 1, time: 30000, errors: ['time']})
                                 .then(async collected => {
-
-                                    if (!interaction.member.voice?.channel) return interaction.channel.send('Connect to a Voice Channel');
-
-                                    if (interaction.client.players.has(interaction.guildId)) {
+                                    //if (interaction.client.players.has(interaction.guildId)) {
                                         let player = interaction.client.players.get(interaction.guildId);
                                         if (player.state.status == AudioPlayerStatus.Playing) {
                                             songQueue.push(urlArr[int]);
@@ -181,41 +173,28 @@ module.exports = {
                                                 //.setDescription("")
                                                 .setTimestamp()
                                             interaction.channel.send({embeds: [addedToQueueEmbed], fetchReply: true})
-                                            //interaction.reply({embeds: [addedToQueueEmbed], fetchReply: true})
                                         } else {
-                                            songQueue.push(urlArr[int]);
-                                            const connection = joinVoiceChannel({
-                                                channelId: interaction.member.voice.channel.id,
-                                                guildId: interaction.guild.id,
-                                                adapterCreator: interaction.guild.voiceAdapterCreator
-                                            });
-                                            let song = songQueue.shift();
-                                            let stream = await play.stream(song.url);
+                                            let song = urlArr[int];
+                                            songQueue.push(song);
 
-                                            //Create AudioResource from Stream
-                                            let resource = createAudioResource(stream.stream, {
-                                                inputType: stream.type
-                                            })
+                                            await playSong(interaction,player);
 
                                             let playingEmbed = new MessageEmbed()
                                                 .setColor("#FF0000")
-                                                .setTitle("Now playing: " + song.title)
+                                                .setTitle("Now playing: " + unescape(song.title))
                                                 .setThumbnail(song.thumbnail)
                                                 //.setDescription("")
                                                 .setTimestamp()
-                                            interaction.channel.send({embeds: [playingEmbed], fetchReply: true})
-                                            //interaction.reply({embeds: [playingEmbed], fetchReply: true})
-
-                                            player.play(resource)
-
-                                            connection.subscribe(player)
+                                            interaction.channel.send({embeds: [playingEmbed], fetchReply: true});
 
                                             if (eventBool == false) {
+                                                //player.on(AudioPlayerStatus.Idle, nextSongEvent);
                                                 player.on(AudioPlayerStatus.Idle, async () => {
                                                     eventBool = true;
                                                     if (songQueue.length == 0) {
                                                         interaction.channel.send("Queue finished!");
                                                         player.stop();
+                                                        connection.unsubscribe(player);
                                                         return;
                                                     }
                                                     let song = songQueue.shift();
@@ -230,7 +209,7 @@ module.exports = {
 
                                                     let playingEmbed = new MessageEmbed()
                                                         .setColor("#FF0000")
-                                                        .setTitle("Now playing: " + song.title)
+                                                        .setTitle("Now playing: " + unescape(song.title))
                                                         .setThumbnail(song.thumbnail)
                                                         //.setDescription("")
                                                         .setTimestamp()
@@ -238,9 +217,10 @@ module.exports = {
                                                 });
                                             }
                                         }
-                                    }
+                                    //}
                                 })
                                 .catch(collected => {
+                                    console.log(collected)
                                     interaction.followUp('Looks like nobody sent a number 1-5, Retry command to play a song');
                                 });
                         });
@@ -248,38 +228,35 @@ module.exports = {
                 break;
             case "skip":
                 if (interaction.client.players.has(interaction.guildId)) {
-                    if (!interaction.member.voice?.channel) return interaction.channel.send('Connect to a Voice Channel');
-
                     let player = interaction.client.players.get(interaction.guildId);
-                    if(songQueue.length==0) {
-                        interaction.reply();
-                    }
+                    if (songQueue.length == 0) {
+                        await interaction.reply("There are 0 songs left in the queue. You cant skip at the moment.");
+                    } else {
 
-                    if (player.state.status == AudioPlayerStatus.Playing) {
-                        let song = songQueue.shift();
-                        let stream = await play.stream(song.url)
+                        if (player.state.status == AudioPlayerStatus.Playing) {
+                            let song = songQueue.shift();
+                            let stream = await play.stream(song.url)
 
-                        //Create AudioResource from Stream
-                        let resource = createAudioResource(stream.stream, {
-                            inputType: stream.type
-                        })
+                            //Create AudioResource from Stream
+                            let resource = createAudioResource(stream.stream, {
+                                inputType: stream.type
+                            })
 
-                        player.play(resource)
-                        let playingEmbed = new MessageEmbed()
-                            .setColor("#FF0000")
-                            .setTitle("Song Skipped! Now playing: " + song.title)
-                            .setThumbnail(song.thumbnail)
-                            //.setDescription("")
-                            .setTimestamp()
-                        //interaction.channel.send({embeds: [playingEmbed], fetchReply: true})
-                        interaction.reply({embeds: [playingEmbed], fetchReply: true})
+                            player.play(resource)
+                            let playingEmbed = new MessageEmbed()
+                                .setColor("#FF0000")
+                                .setTitle("Song Skipped! Now playing: " + song.title)
+                                .setThumbnail(song.thumbnail)
+                                //.setDescription("")
+                                .setTimestamp()
+                            interaction.reply({embeds: [playingEmbed], fetchReply: true})
+                        }
                     }
                 }
 
                 break;
             case "pause":
                 if (interaction.client.players.has(interaction.guildId)) {
-                    if (!interaction.member.voice?.channel) return interaction.channel.send('Connect to a Voice Channel');
                     let player = interaction.client.players.get(interaction.guildId);
                         if (player.state.status == AudioPlayerStatus.Playing) {
                             player.pause();
@@ -301,12 +278,11 @@ module.exports = {
 
             case "stop":
                 if (interaction.client.players.has(interaction.guildId)) {
-                    if (!interaction.member.voice?.channel) return interaction.channel.send('Connect to a Voice Channel');
 
                     let player = interaction.client.players.get(interaction.guildId);
                     if (player.state.status == AudioPlayerStatus.Playing) {
                         player.stop();
-
+                        connection.unsubscribe(player);
                         let stopEmbed = new MessageEmbed()
                             .setTitle("Player Stopped!")
                             .setColor("#FF0000")
@@ -317,14 +293,16 @@ module.exports = {
                         // in this method add a check if there is one, and remove it.
                     }
                     else{
-                       // let
-                        //interaction.reply
+                        let stopEmbed = new MessageEmbed()
+                            .setTitle("Player is not playing!")
+                            .setColor("#FF0000")
+                            .setTimestamp()
+                        interaction.reply({embeds: [stopEmbed], fetchReply: true})
                     }
                 }
                 break;
             case "resume":
                 if (interaction.client.players.has(interaction.guildId)) {
-                    if (!interaction.member.voice?.channel) return interaction.channel.send('Connect to a Voice Channel');
                     let player = interaction.client.players.get(interaction.guildId);
                         if (player.state.status == AudioPlayerStatus.Paused) {
                             player.unpause();
@@ -345,7 +323,10 @@ module.exports = {
                 break;
             case "queue":
                 if(songQueue.length==0){
-
+                let queueEmbed = new MessageEmbed()
+                    .setTitle("The queues length is 0.")
+                    .setTimestamp()
+                    interaction.reply({embeds: [queueEmbed]})
                 }
                 else{
                     let pos =5;
@@ -380,6 +361,56 @@ module.exports = {
                     });
                 }
                 break;
+            case "soundcloud":
+
+                break;
         }
     },
+}
+// async function nextSongEvent(interaction,player) {
+//     eventBool = true;
+//     if (songQueue.length == 0 && player.state.status == AudioPlayerStatus.Idle) {
+//         interaction.channel.send("Queue finished!");
+//         player.stop();
+//         return;
+//     }
+//     let song = songQueue.shift();
+//     let stream = await play.stream(song.url)
+//
+//     //Create AudioResource from Stream
+//     let resource = createAudioResource(stream.stream, {
+//         inputType: stream.type
+//     })
+//
+//     player.play(resource)
+//
+//     let playingEmbed = new MessageEmbed()
+//         .setColor("#FF0000")
+//         .setTitle("Now playing: " + song.title)
+//         .setThumbnail(song.thumbnail)
+//         //.setDescription("")
+//         .setTimestamp()
+//     interaction.channel.send({embeds: [playingEmbed], fetchReply: true})
+// }
+async function playSong(interaction, player){
+    connection = joinVoiceChannel({
+        channelId: interaction.member.voice.channel.id,
+        guildId: interaction.guild.id,
+        adapterCreator: interaction.guild.voiceAdapterCreator
+    });
+    let song = songQueue.shift();
+    //console.log(song);
+    let stream = await play.stream(song.url);
+
+    //Create AudioResource from Stream
+    let resource = createAudioResource(stream.stream, {
+        inputType: stream.type
+    })
+
+    player.play(resource)
+
+    connection.subscribe(player)
+}
+async function playSongSC(interaction,player,song){
+
 }
